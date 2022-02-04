@@ -4,43 +4,60 @@
 #include <getopt.h>
 #include <string.h>
 
-struct cacheLine 
+int g_Hits = 0;
+int g_Miss = 0;
+int g_Evictions = 0;
+
+
+typedef struct cache_ine 
 {
-    unsigned int valid;
-    unsigned long tag;
-};
+    int valid;
+    int LRU;
+    int tag;
+} cache_line;
 
-
-void parseArgs(long * sp, long * Ep, long * bp, FILE ** fp, int argc, char *argv[]);
-void InitCache(struct cacheLine **cache, long S, long E);
-void freeMemory(struct cacheLine **cache, long S);
+void parse(int * sp, int *tp, int * Sp, int * Ep, int * bp, FILE ** fp, int argc, char *argv[]);
 
 int main(int argc, char *argv[])
 {
     //Cache parameters
-    struct cacheLine **cache;
-    long s;
-    long S;
-    //long t; 
-    long E;
-    long b;
+    cache_line **cache;
+    int s, t, b, S, E;//, B;
 
     //File reading parameters
     FILE *f = NULL;
-    char fline[1000];
-    // size_t flen = 0;
-    // size_t fread;
+    char finstr;
+    int fdata_size, fAddr;
+    unsigned int fset, ftag;
 
+    //Loop parameters
+    int i, y;
     //First parse the command-line arguments
-    parseArgs(&s, &E, &b, &f, argc, argv);
-    S = 1 << s;
-    //t = (1 << 6) - s - b;
+    parse(&s, &t, &S, &E, &b, &f, argc, argv);
 
     //Initialize cache with given values
-    cache = malloc(S * sizeof(struct cacheLine *));
+    cache = malloc(sizeof * cache * S);
     if(cache)
     {
-        InitCache(cache, S, E);
+        for(i = 0; i < S; i++)
+        {      
+            cache[i] = malloc(sizeof * cache[i] * E);
+            if(cache[i])
+            {
+                for(y = 0; y < E; y++)
+                {
+                    cache[i][y].valid = 0;
+                    cache[i][y].LRU = 0;
+                    cache[i][y].tag = -1;                        
+                }
+            }
+            else
+            {
+                fprintf(stderr, "Error while creating the cache.");
+                exit(EXIT_FAILURE);
+            }
+
+        }
     }
     else 
     {
@@ -49,19 +66,32 @@ int main(int argc, char *argv[])
     }
 
     //Read file
-    while (fgets(fline,100, f)) {
-        //Check the instruction
-        //Read or write to te cache
-        //update counter
+    while (fscanf(f, " %c %x,%d", &finstr, &fAddr, &fdata_size) > 0) {
+        if(finstr != 'I')
+        {
+            fset = ((unsigned int)fAddr << t) >> (t + b);
+            ftag = (unsigned int)fAddr >> (s + b);
+            printf("ADDRESS : %i \n", fAddr);
+            printf("TAG : %u \n", ftag);
+            printf("SET : %u \n", fset);
+           //cache[fset]
+          // SetCache(&currentSet, ftag, flines[1]);
+
+        }
     }
 
-    //printSummary(0, 0, 0);
+    //printSummary(g_Hits, g_Miss, g_Evictions);
+    for(i = 0; i < S; i++)
+    {   
+        if(cache[i])
+            free(cache[i]);
+    }
+    free(cache);
     fclose(f);
-    freeMemory(cache, S);
     return 0;
 }
 
-void parseArgs(long *sp, long *Ep, long *bp, FILE **fp, int argc, char *argv[])
+void parse(int *sp, int *tp, int * Sp, int *Ep, int *bp, FILE **fp, int argc, char *argv[])
 {
     long c;
     opterr = 0;
@@ -70,57 +100,112 @@ void parseArgs(long *sp, long *Ep, long *bp, FILE **fp, int argc, char *argv[])
         switch(c)
         {
             case 's':
-            *sp = atol(optarg);
+            *sp = atoi(optarg);
             break;
             case 'E':
-            *Ep = atol(optarg); 
+            *Ep = atoi(optarg); 
             break;
             case 'b':
-            *bp = atol(optarg);  
+            *bp = atoi(optarg);  
             break;
             case 't':
             *fp = fopen(optarg, "r");  
-            if(!*fp)
-            {
-                fprintf(stderr, "%s : Not a valid file path\n",optarg);
-                exit(EXIT_FAILURE);
-            }
             break;
             default:
             fprintf(stderr, "Usage: %s [-sEbt] \n", argv[0]);
             exit(EXIT_FAILURE);
         }
     }
-}
-void InitCache(struct cacheLine **cache, long S, long E)
-{
-    long i;
-    long y;
-    
-    for(i = 0; i < S; i++)
-    {      
-        *(cache + i) = malloc(E * sizeof(struct cacheLine));
-        if(*(cache + i))
-        {
-            for(y = 0; y < E; y++)
-            {
-                ((*(cache + i)) + y)->valid = 0;
-            }
-        }
-        else
-        {
-            fprintf(stderr, "Error while creating the cache.");
-            exit(EXIT_FAILURE);
-        }
+    if(!*fp)
+    {
+        fprintf(stderr, "%s : Not a valid file path\n",optarg);
+        exit(EXIT_FAILURE);
     }
+    if(*Ep == 0)
+    {
+        fprintf(stderr, "E must be positive.");
+        exit(EXIT_FAILURE);
+    }
+
+    *tp =     8 * sizeof(int) - *sp - *bp;
+    *Sp = 1 << *sp;
+    return;
 }
 
-void freeMemory(struct cacheLine **cache, long S)
-{
-    int i;
-    for(i = 0; i < S; i++)
-    {      
-        free(*(cache + i));
-    }
-    free(cache);
-}
+// void SetCache(CacheSet *cacheSetptr, unsigned long tag, char instr)
+// {
+//     CacheSet cacheset = *cacheSetptr;
+//     int i;
+//     int found = 0;
+//     int full = 1;
+//     unsigned long fulltag;
+//     unsigned int fullSmallest;
+//     //Check if tag is in cache
+//     for(i = 0; i < cacheset.E; i++)
+//     {
+//         if(cacheset.cacheLines[i].valid == 1)
+//         {
+//             if(cacheset.cacheLines[i].tag == tag)
+//             {
+//                 g_Hits++;
+//                 if(instr == 'M')
+//                 {
+//                     g_Hits++;
+//                 }
+//                 found = 1;
+//                 cacheset.cacheLines[i].used++;
+//                 break;
+//             }
+//         }
+//     }
+//     //If not found
+//     if(found == 0)
+//     {
+//         g_Miss++;
+//         if(instr == 'M')
+//         {
+//             g_Hits ++;
+//         }
+
+//         //Check for empty lines
+//         for(i = 0; i < cacheset.E; i++)
+//         {
+//             if(cacheset.cacheLines[i].valid == 0)
+//             {
+//                 cacheset.cacheLines[i].valid = 1;
+//                 cacheset.cacheLines[i].used = 0;
+//                 if(instr == 'M')
+//                 {
+//                    cacheset.cacheLines[i].used++;
+//                 }
+//                 cacheset.cacheLines[i].tag = tag;
+//                 full = 0;
+//                 break;
+//             }
+//         }
+
+//         //If no empty lines
+//         if(full == 1)
+//         {   
+//             fulltag = cacheset.cacheLines[0].tag;
+//             fullSmallest = cacheset.cacheLines[0].used;
+//             for(i = 0; i < cacheset.E; i++)
+//             {
+//                 if(cacheset.cacheLines[i].used <= fullSmallest)
+//                 {
+//                     fulltag = cacheset.cacheLines[i].tag;
+//                 }
+//             }
+
+//             g_Evictions++;
+//             cacheset.cacheLines[fulltag].valid = 1;
+//             cacheset.cacheLines[fulltag].used = 0;
+            
+//             if(instr == 'M')
+//             {
+//                 cacheset.cacheLines[i].used++;
+//             }
+//             cacheset.cacheLines[fulltag].tag = tag;
+//         }
+//     }
+// }

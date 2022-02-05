@@ -13,29 +13,34 @@ typedef struct cache_ine
 {
     int valid;
     int LRU;
-    int tag;
+    unsigned long tag;
 } cache_line;
 
-void parse(int * sp, int *tp, int * Sp, int * Ep, int * bp, FILE ** fp, int argc, char *argv[]);
+void parse(long * sp, long *tp, long * Sp, long * Ep, long * bp, FILE ** fp, int argc, char *argv[]);
+void set_cache(cache_line *c, unsigned long *tag, long E);
 
 int main(int argc, char *argv[])
 {
     //Cache parameters
     cache_line **cache;
-    int s, t, b, S, E;//, B;
+    long s, t, b, S, E;
 
     //File reading parameters
     FILE *f = NULL;
     char finstr;
-    int fdata_size, fAddr;
-    unsigned int fset, ftag;
+    int fdata_size;
+    unsigned long fAddr, fset, ftag;
+    unsigned long fSMask, fTMask;
 
     //Loop parameters
     int i, y;
-    //First parse the command-line arguments
-    parse(&s, &t, &S, &E, &b, &f, argc, argv);
 
-    //Initialize cache with given values
+    //Parse CL args
+    parse(&s, &t, &S, &E, &b, &f, argc, argv);
+    fSMask = (1 << s) - 1;
+    fTMask = (1 << t) - 1;
+
+    //Initialize cache
     cache = malloc(sizeof * cache * S);
     if(cache)
     {
@@ -48,7 +53,7 @@ int main(int argc, char *argv[])
                 {
                     cache[i][y].valid = 0;
                     cache[i][y].LRU = 0;
-                    cache[i][y].tag = -1;                        
+                    cache[i][y].tag = -1 ;                        
                 }
             }
             else
@@ -66,21 +71,19 @@ int main(int argc, char *argv[])
     }
 
     //Read file
-    while (fscanf(f, " %c %x,%d", &finstr, &fAddr, &fdata_size) > 0) {
+    while (fscanf(f, " %c %lx,%d", &finstr, &fAddr, &fdata_size) != EOF) {
         if(finstr != 'I')
-        {
-            fset = ((unsigned int)fAddr << t) >> (t + b);
-            ftag = (unsigned int)fAddr >> (s + b);
-            printf("ADDRESS : %i \n", fAddr);
-            printf("TAG : %u \n", ftag);
-            printf("SET : %u \n", fset);
-           //cache[fset]
-          // SetCache(&currentSet, ftag, flines[1]);
-
+        { 
+            fset = (fAddr >> b) & fSMask;
+            ftag = (fAddr >> (s + b)) & fTMask;
+            
+            set_cache(cache[fset], &ftag, E);
+            if(finstr == 'M')
+                set_cache(cache[fset], &ftag, E);
         }
     }
 
-    //printSummary(g_Hits, g_Miss, g_Evictions);
+    printSummary(g_Hits, g_Miss, g_Evictions);
     for(i = 0; i < S; i++)
     {   
         if(cache[i])
@@ -91,7 +94,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-void parse(int *sp, int *tp, int * Sp, int *Ep, int *bp, FILE **fp, int argc, char *argv[])
+void parse(long *sp, long *tp, long * Sp, long *Ep, long *bp, FILE **fp, int argc, char *argv[])
 {
     long c;
     opterr = 0;
@@ -100,13 +103,13 @@ void parse(int *sp, int *tp, int * Sp, int *Ep, int *bp, FILE **fp, int argc, ch
         switch(c)
         {
             case 's':
-            *sp = atoi(optarg);
+            *sp = atol(optarg);
             break;
             case 'E':
-            *Ep = atoi(optarg); 
+            *Ep = atol(optarg); 
             break;
             case 'b':
-            *bp = atoi(optarg);  
+            *bp = atol(optarg);  
             break;
             case 't':
             *fp = fopen(optarg, "r");  
@@ -127,85 +130,68 @@ void parse(int *sp, int *tp, int * Sp, int *Ep, int *bp, FILE **fp, int argc, ch
         exit(EXIT_FAILURE);
     }
 
-    *tp =     8 * sizeof(int) - *sp - *bp;
+    *tp =     (sizeof(long) << 3)  - *sp - *bp;
     *Sp = 1 << *sp;
     return;
 }
 
-// void SetCache(CacheSet *cacheSetptr, unsigned long tag, char instr)
-// {
-//     CacheSet cacheset = *cacheSetptr;
-//     int i;
-//     int found = 0;
-//     int full = 1;
-//     unsigned long fulltag;
-//     unsigned int fullSmallest;
-//     //Check if tag is in cache
-//     for(i = 0; i < cacheset.E; i++)
-//     {
-//         if(cacheset.cacheLines[i].valid == 1)
-//         {
-//             if(cacheset.cacheLines[i].tag == tag)
-//             {
-//                 g_Hits++;
-//                 if(instr == 'M')
-//                 {
-//                     g_Hits++;
-//                 }
-//                 found = 1;
-//                 cacheset.cacheLines[i].used++;
-//                 break;
-//             }
-//         }
-//     }
-//     //If not found
-//     if(found == 0)
-//     {
-//         g_Miss++;
-//         if(instr == 'M')
-//         {
-//             g_Hits ++;
-//         }
+void set_cache(cache_line *c, unsigned long * tag, long E)
+{
+    int i;
+    int hit = 0;
+    int sat = 1;
+    int LRUE;
+    unsigned long LRUt;
 
-//         //Check for empty lines
-//         for(i = 0; i < cacheset.E; i++)
-//         {
-//             if(cacheset.cacheLines[i].valid == 0)
-//             {
-//                 cacheset.cacheLines[i].valid = 1;
-//                 cacheset.cacheLines[i].used = 0;
-//                 if(instr == 'M')
-//                 {
-//                    cacheset.cacheLines[i].used++;
-//                 }
-//                 cacheset.cacheLines[i].tag = tag;
-//                 full = 0;
-//                 break;
-//             }
-//         }
+    //Cache hit
+    for(i = 0; i < E; i++)
+    {
+        if(c[i].valid == 1 && c[i].tag == *tag)
+        {
 
-//         //If no empty lines
-//         if(full == 1)
-//         {   
-//             fulltag = cacheset.cacheLines[0].tag;
-//             fullSmallest = cacheset.cacheLines[0].used;
-//             for(i = 0; i < cacheset.E; i++)
-//             {
-//                 if(cacheset.cacheLines[i].used <= fullSmallest)
-//                 {
-//                     fulltag = cacheset.cacheLines[i].tag;
-//                 }
-//             }
+            g_Hits++;
+            hit = 1;
+            c[i].LRU = 0;
+        } 
+        else
+        {
+            c[i].LRU++;
+        }
+    }
 
-//             g_Evictions++;
-//             cacheset.cacheLines[fulltag].valid = 1;
-//             cacheset.cacheLines[fulltag].used = 0;
-            
-//             if(instr == 'M')
-//             {
-//                 cacheset.cacheLines[i].used++;
-//             }
-//             cacheset.cacheLines[fulltag].tag = tag;
-//         }
-//     }
-// }
+    //Cache miss
+    if(hit == 0)
+    {
+        g_Miss++;
+        for(i = 0; i < E; i++)
+        {
+            if(c[i].valid == 0)
+            {
+                c[i].valid = 1;
+                c[i].LRU = 0;
+                c[i].tag = *tag;
+                sat = 0;
+                break;
+            }
+        }
+        //Eviction
+        if(sat == 1)
+        {   
+            g_Evictions++;
+            LRUE = c[0].LRU;
+            LRUt = 0;
+
+            for(i = 0; i < E; i++)
+            {
+                if(c[i].LRU >= LRUE)
+                {
+                    LRUE = c[i].LRU;
+                    LRUt = i;
+                }
+            }
+            c[LRUt].tag = *tag;
+            c[LRUt].LRU = 0;
+        }
+    }    
+    return;
+}
